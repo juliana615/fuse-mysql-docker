@@ -1,0 +1,4 @@
+docker exec -it mysql8 mysql -u root -pTest.123 filesystem -e "SELECT * FROM files;"
+docker exec -it mysql8 mysql -u root -pTest.123 filesystem -e "SELECT * FROM directories;"
+
+docker exec -it fuse-container sh
