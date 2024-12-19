@@ -65,7 +65,9 @@ class MySQLFuse(Operations):
             # List the top-level directories (root)
             dir_contents = ['.', '..']
             for entry in self.files:
-                if entry != '/':  # Don't add the root itself
+                # if entry != '/':  # Don't add the root itself
+                if entry != '/' and os.path.dirname(entry) == '/':  # Only include entries directly in '/'
+                    print(f'entry: {entry}')
                     dir_contents.append(os.path.basename(entry))  # List entries in root
             print(f"Root directory contents: {dir_contents}")
             return dir_contents
@@ -78,29 +80,6 @@ class MySQLFuse(Operations):
         
         print(f"Contents of {path}: {dir_contents}")
         return dir_contents
-
-    # def readdir(self, path, fh):
-    #     print(f"readdir called with path={path}")
-        
-    #     if path == '/':
-    #         # List the top-level directories (root)
-    #         return ['.', '..'] + [entry for entry in self.files if entry != '/']
-        
-    #     # If path is a directory, list its contents
-    #     dir_contents = ['.', '..']
-    #     for entry in self.files:
-    #         if os.path.dirname(entry) == path:
-    #             dir_contents.append(os.path.basename(entry))
-        
-    #     print(f"Directory contents for {path}: {dir_contents}")
-    #     return dir_contents
-    
-    # def create(self, path, mode):
-    #     # Add file to the list of known paths
-    #     self.files[path] = {'type': 'file'}
-    #     self.files[path]['st_mode'] = (S_IFREG | mode)
-    #     self.files[path]['st_nlink'] = 1
-    #     self.data[path] = b''
 
 def main():
     # if len(sys.argv) < 2:
