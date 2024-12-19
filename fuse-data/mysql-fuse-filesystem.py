@@ -47,5 +47,15 @@ class MySQLFuse(Operations):
         self.files[path]['st_nlink'] = 1
         self.data[path] = b''
 
-# Initialize FUSE
-fuse = FUSE(MySQLFuse(), '/mnt/myfuse', foreground=True)
+def main():
+    # if len(sys.argv) < 2:
+    #     print("Usage: python3 mysql-fuse-filesystem.py <mountpoint>")
+    #     sys.exit(1)
+    # mountpoint = sys.argv[1]
+    mountpoint = '/mnt/vfs'
+    # Initialize FUSE
+    fuse = FUSE(MySQLFuse(), mountpoint, foreground=True)
+    
+if __name__ == '__main__':
+    main()
+    
