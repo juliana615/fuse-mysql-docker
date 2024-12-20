@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS files (
     size INT NOT NULL DEFAULT 0,
     ctime FLOAT NOT NULL,
     mtime FLOAT NOT NULL,
-    atime FLOAT NOT NULL
+    atime FLOAT NOT NULL,
+    data LONGBLOB
 );
 """
 
@@ -199,6 +200,60 @@ class MySQLFuse(Operations):
         self.cursor.execute("UPDATE files SET nlink = nlink - 1 WHERE path = %s", (parent_dir,))
         self.conn.commit()
         
+    def write(self, path, data, offset, fh):
+        print(f"write called with path={path}, offset={offset}")
+        self.cursor.execute("SELECT * FROM files WHERE path = %s", (path,))
+        entry = self.cursor.fetchone()
+        if not entry:
+            raise FuseOSError(errno.ENOENT)
+
+        # Handle writing the data
+        current_data = entry['data'] or b''  # Retrieve current data, default to empty if None
+        new_data = current_data[:offset] + data + current_data[offset + len(data):]
+
+        # Update file size and data
+        new_size = len(new_data)
+        try:
+            self.cursor.execute(
+                """
+                UPDATE files SET size = %s, data = %s, mtime = %s WHERE path = %s
+                """,
+                (new_size, new_data, time(), path)
+            )
+            self.conn.commit()
+        except mysql.connector.Error as e:
+            self.conn.rollback()
+            raise FuseOSError(errno.EIO)
+
+        return len(data)
+    
+    def truncate(self, path, length, fh=None):
+        self.cursor.execute("SELECT * FROM files WHERE path = %s", (path,))
+        entry = self.cursor.fetchone()
+        if not entry:
+            raise FuseOSError(errno.ENOENT)
+
+        data = entry['data'] or b''
+        truncated_data = data[:length]
+
+        self.cursor.execute(
+            """
+            UPDATE files SET size = %s, data = %s, mtime = %s WHERE path = %s
+            """,
+            (length, truncated_data, time(), path)
+        )
+        self.conn.commit()
+        
+    def read(self, path, size, offset, fh):
+        print(f"read called with path={path}, offset={offset}")
+        self.cursor.execute("SELECT * FROM files WHERE path = %s", (path,))
+        entry = self.cursor.fetchone()
+        if not entry:
+            raise FuseOSError(errno.ENOENT)
+
+        data = entry['data'] or b''
+        return data[offset:offset + size]
+        
 def main():
     # if len(sys.argv) < 2:
     #     print("Usage: python3 mysql-fuse-filesystem.py <mountpoint>")
@@ -206,7 +261,7 @@ def main():
     # mountpoint = sys.argv[1]
     mountpoint = '/mnt/vfs'
     # Initialize FUSE
-    fuse = FUSE(MySQLFuse(), mountpoint, foreground=True)
+    fuse = FUSE(MySQLFuse(), mountpoint, foreground=True, allow_other=True)
     
 if __name__ == '__main__':
     main()
