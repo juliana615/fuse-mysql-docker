@@ -1,29 +1,72 @@
 import os
 from fuse import FUSE, FuseOSError, Operations
 from stat import S_IFDIR, S_IFREG
+import mysql.connector
 import errno
 import sys
 from time import time
+
+# MySQL Configuration
+DB_CONFIG = {
+    'host': os.getenv('MYSQL_HOST', 'localhost'),
+    'user': os.getenv('MYSQL_USER', 'root'),
+    'password': os.getenv('MYSQL_PASSWORD', 'Test.123'),
+    'database': os.getenv('MYSQL_DATABASE', 'filesystem'),
+    'port': int(os.getenv('MYSQL_PORT', 3306))
+}
+
+# SQL schema setup
+SCHEMA_SETUP = """
+CREATE TABLE IF NOT EXISTS filesystem (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    path VARCHAR(255) UNIQUE NOT NULL,
+    mode INT NOT NULL,
+    nlink INT NOT NULL,
+    size INT NOT NULL DEFAULT 0,
+    ctime FLOAT NOT NULL,
+    mtime FLOAT NOT NULL,
+    atime FLOAT NOT NULL
+);
+"""
 
 class MySQLFuse(Operations):
     def __init__(self):
         self.files = {'/': {'st_mode': (S_IFDIR | 0o755), 'st_nlink': 2}}  # Initialize root directory
         self.data = {}
+        self.conn = mysql.connector.connect(**DB_CONFIG)
+        self.cursor = self.conn.cursor(dictionary=True)
+        self._initialize_schema()
 
+    def _initialize_schema(self):
+        self.cursor.execute(SCHEMA_SETUP)
+        self.conn.commit()
+
+        # Ensure root directory exists
+        self.cursor.execute("SELECT * FROM filesystem WHERE path = '/'")
+        if not self.cursor.fetchone():
+            now = time()
+            self.cursor.execute(
+                """
+                INSERT INTO filesystem (path, mode, nlink, size, ctime, mtime, atime)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                ('/', S_IFDIR | 0o755, 2, 0, now, now, now)
+            )
+            self.conn.commit()
+            
     def getattr(self, path, fh=None):
-        if path == '/':
-            # Attributes for the root directory
-            st = {
-                'st_mode': (S_IFDIR | 0o755),
-                'st_nlink': 2,
-            }
-        elif path in self.files:
-            # Attributes for files
-            st = self.files[path]
-        else:
+        self.cursor.execute("SELECT * FROM filesystem WHERE path = %s", (path,))
+        entry = self.cursor.fetchone()
+        if not entry:
             raise FuseOSError(errno.ENOENT)
-
-        return st
+        return {
+            'st_mode': entry['mode'],
+            'st_nlink': entry['nlink'],
+            'st_size': entry['size'],
+            'st_ctime': entry['ctime'],
+            'st_mtime': entry['mtime'],
+            'st_atime': entry['atime']
+        }
 
     def mkdir(self, path, mode):
         print(f"mkdir called with path={path}, mode={oct(mode)}")
@@ -60,11 +103,14 @@ class MySQLFuse(Operations):
         
     def readdir(self, path, fh):
         print(f"readdir called with path={path}")
-        
+        self.cursor.execute("SELECT path FROM filesystem WHERE path LIKE %s", (path.rstrip('/') + '/%',))
+        entries = self.cursor.fetchall()
+        print(f'entries: {entries}')
         if path == '/':
             # List the top-level directories (root)
             dir_contents = ['.', '..']
-            for entry in self.files:
+            for entry_dict in entries:
+                entry = entry_dict['path']
                 # if entry != '/':  # Don't add the root itself
                 if entry != '/' and os.path.dirname(entry) == '/':  # Only include entries directly in '/'
                     print(f'entry: {entry}')
@@ -74,7 +120,8 @@ class MySQLFuse(Operations):
         
         # If path is a directory, list its contents
         dir_contents = ['.', '..']
-        for entry in self.files:
+        for entry_dict in entries:
+            entry = entry_dict['path']
             if os.path.dirname(entry) == path:
                 dir_contents.append(os.path.basename(entry))
         
