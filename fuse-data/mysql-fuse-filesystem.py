@@ -125,6 +125,34 @@ class MySQLFuse(Operations):
         print(f"Contents of {path}: {dir_contents}")
         return dir_contents
 
+    def create(self, path, mode):
+        print(f"cat called with path={path}, mode={oct(mode)}")
+        
+        self.cursor.execute("SELECT * FROM files WHERE path = %s", (path,))
+        if self.cursor.fetchone():
+            raise FuseOSError(errno.EEXIST)  # File already exists
+        
+        parent_dir = os.path.dirname(path)
+        self.cursor.execute("SELECT * FROM files WHERE path = %s", (parent_dir,))
+        if not self.cursor.fetchone():
+            raise FuseOSError(errno.ENOENT)
+
+        now = time()
+        try:
+            self.cursor.execute(
+                """
+                INSERT INTO files (path, mode, nlink, size, ctime, mtime, atime)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (path, S_IFREG | mode, 1, 0, now, now, now)
+            )
+            self.cursor.execute("UPDATE files SET nlink = nlink + 1 WHERE path = %s", (parent_dir,))
+            self.conn.commit()
+            print(f"New file created: {path}, parent directory link count updated.")
+        except mysql.connector.Error as e:
+            raise FuseOSError(errno.EEXIST)
+        return 0
+    
 def main():
     # if len(sys.argv) < 2:
     #     print("Usage: python3 mysql-fuse-filesystem.py <mountpoint>")
