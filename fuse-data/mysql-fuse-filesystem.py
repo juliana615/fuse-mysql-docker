@@ -17,7 +17,7 @@ DB_CONFIG = {
 
 # SQL schema setup
 SCHEMA_SETUP = """
-CREATE TABLE IF NOT EXISTS filesystem (
+CREATE TABLE IF NOT EXISTS files (
     id INT AUTO_INCREMENT PRIMARY KEY,
     path VARCHAR(255) UNIQUE NOT NULL,
     mode INT NOT NULL,
@@ -42,12 +42,12 @@ class MySQLFuse(Operations):
         self.conn.commit()
 
         # Ensure root directory exists
-        self.cursor.execute("SELECT * FROM filesystem WHERE path = '/'")
+        self.cursor.execute("SELECT * FROM files WHERE path = '/'")
         if not self.cursor.fetchone():
             now = time()
             self.cursor.execute(
                 """
-                INSERT INTO filesystem (path, mode, nlink, size, ctime, mtime, atime)
+                INSERT INTO files (path, mode, nlink, size, ctime, mtime, atime)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 ('/', S_IFDIR | 0o755, 2, 0, now, now, now)
@@ -55,7 +55,7 @@ class MySQLFuse(Operations):
             self.conn.commit()
             
     def getattr(self, path, fh=None):
-        self.cursor.execute("SELECT * FROM filesystem WHERE path = %s", (path,))
+        self.cursor.execute("SELECT * FROM files WHERE path = %s", (path,))
         entry = self.cursor.fetchone()
         if not entry:
             raise FuseOSError(errno.ENOENT)
@@ -71,13 +71,13 @@ class MySQLFuse(Operations):
     def mkdir(self, path, mode):
         print(f"mkdir called with path={path}, mode={oct(mode)}")
         
-        self.cursor.execute("SELECT * FROM filesystem WHERE path = %s", (path,))
+        self.cursor.execute("SELECT * FROM files WHERE path = %s", (path,))
         if self.cursor.fetchone():
             raise FuseOSError(errno.EEXIST)  # Directory already exists
         
         # Get the parent directory
         parent_dir = os.path.dirname(path)
-        self.cursor.execute("SELECT * FROM filesystem WHERE path = %s", (parent_dir,))
+        self.cursor.execute("SELECT * FROM files WHERE path = %s", (parent_dir,))
         if not self.cursor.fetchone():
             raise FuseOSError(errno.ENOENT)
         
@@ -85,13 +85,13 @@ class MySQLFuse(Operations):
         try:
             self.cursor.execute(
                 """
-                INSERT INTO filesystem (path, mode, nlink, size, ctime, mtime, atime)
+                INSERT INTO files (path, mode, nlink, size, ctime, mtime, atime)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 (path, S_IFDIR | mode, 2, 0, now, now, now)
             )
             # Increment link count for the parent directory
-            self.cursor.execute("UPDATE filesystem SET nlink = nlink + 1 WHERE path = %s", (parent_dir,))
+            self.cursor.execute("UPDATE files SET nlink = nlink + 1 WHERE path = %s", (parent_dir,))
             self.conn.commit()
             
             print(f"New directory created: {path}, parent directory link count updated.")
@@ -100,7 +100,7 @@ class MySQLFuse(Operations):
         
     def readdir(self, path, fh):
         print(f"readdir called with path={path}")
-        self.cursor.execute("SELECT path FROM filesystem WHERE path LIKE %s", (path.rstrip('/') + '/%',))
+        self.cursor.execute("SELECT path FROM files WHERE path LIKE %s", (path.rstrip('/') + '/%',))
         entries = self.cursor.fetchall()
         print(f'entries: {entries}')
         if path == '/':
