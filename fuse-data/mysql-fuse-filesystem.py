@@ -153,6 +153,27 @@ class MySQLFuse(Operations):
             raise FuseOSError(errno.EEXIST)
         return 0
     
+    def unlink(self, path):
+        self.cursor.execute("SELECT * FROM files WHERE path = %s", (path,))
+        entry = self.cursor.fetchone()
+        if not entry:
+            raise FuseOSError(errno.ENOENT)
+
+        parent_dir = os.path.dirname(path.rstrip('/'))
+        self.cursor.execute("SELECT * FROM files WHERE path = %s", (parent_dir,))
+        if not self.cursor.fetchone():
+            raise FuseOSError(errno.ENOENT)
+            
+        try:
+            # Delete the file
+            self.cursor.execute("DELETE FROM files WHERE path = %s", (path,))
+            # Decrement the parent directory's nlink
+            self.cursor.execute("UPDATE files SET nlink = nlink - 1 WHERE path = %s", (parent_dir,))
+            self.conn.commit()
+        except mysql.connector.Error as e:
+            self.conn.rollback()
+            raise FuseOSError(errno.EIO)
+    
 def main():
     # if len(sys.argv) < 2:
     #     print("Usage: python3 mysql-fuse-filesystem.py <mountpoint>")
