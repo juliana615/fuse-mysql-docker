@@ -16,7 +16,7 @@ DB_CONFIG = {
 }
 
 # SQL schema setup
-SCHEMA_SETUP = """
+SCHEMA_SETUP_FILES = """
 CREATE TABLE IF NOT EXISTS files (
     id INT AUTO_INCREMENT PRIMARY KEY,
     path VARCHAR(255) UNIQUE NOT NULL,
@@ -29,6 +29,13 @@ CREATE TABLE IF NOT EXISTS files (
     data LONGBLOB
 );
 """
+SCHEMA_SETUP_LOCKS = """
+CREATE TABLE IF NOT EXISTS locks (
+    path VARCHAR(255) PRIMARY KEY, -- The file path being locked
+    locked_by VARCHAR(255) NOT NULL, -- Identifier of the lock owner (e.g., process, user)
+    lock_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- Time when the file was locked
+);
+"""
 
 class MySQLFuse(Operations):
     def __init__(self):
@@ -39,7 +46,9 @@ class MySQLFuse(Operations):
         self._initialize_schema()
 
     def _initialize_schema(self):
-        self.cursor.execute(SCHEMA_SETUP)
+        self.cursor.execute(SCHEMA_SETUP_FILES)
+        self.cursor.execute(SCHEMA_SETUP_LOCKS)
+        self.conn.reset_session()
         self.conn.commit()
 
         # Ensure root directory exists
@@ -254,6 +263,58 @@ class MySQLFuse(Operations):
         data = entry['data'] or b''
         return data[offset:offset + size]
         
+    def is_locked(self, path):
+        """Check if the file is locked."""
+        self.cursor.execute("SELECT * FROM locks WHERE path = %s", (path,))
+        return self.cursor.fetchone() is not None
+
+    def lock_file(self, path, locker):
+        """Lock the file for editing."""
+        if self.is_locked(path):
+            raise FuseOSError(errno.EACCES)  # File is already locked
+        
+        try:
+            self.cursor.execute(
+                "INSERT INTO locks (path, locked_by) VALUES (%s, %s)",
+                (path, locker)
+            )
+            self.conn.commit()
+        except mysql.connector.Error as e:
+            raise FuseOSError(errno.EIO)
+
+    def unlock_file(self, path, locker):
+        """Unlock the file."""
+        self.cursor.execute("SELECT * FROM locks WHERE path = %s", (path,))
+        lock = self.cursor.fetchone()
+
+        if not lock:
+            raise FuseOSError(errno.ENOENT)  # File not locked
+        
+        if lock['locked_by'] != locker:
+            raise FuseOSError(errno.EPERM)  # Only the locker can unlock the file
+
+        self.cursor.execute("DELETE FROM locks WHERE path = %s", (path,))
+        self.conn.commit()
+        
+    def open(self, path, flags):
+        locker = f"pid:{os.getpid()}"  # Use process ID as the locker identifier
+
+        if flags & os.O_WRONLY or flags & os.O_RDWR:
+            # If the file is being opened for writing
+            if self.is_locked(path):
+                raise FuseOSError(errno.EACCES)  # Deny access if locked
+            self.lock_file(path, locker)  # Lock the file for writing
+        
+        return 0  # Return a dummy file handle
+
+    def release(self, path, fh):
+        locker = f"pid:{os.getpid()}"  # Use process ID as the locker identifier
+        try:
+            self.unlock_file(path, locker)  # Unlock the file
+        except FuseOSError:
+            pass  # Ignore errors (file might not be locked)
+        return 0
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python3 mysql-fuse-filesystem.py <mountpoint>")
