@@ -3,8 +3,8 @@
 set -e  # Beendet das Skript bei Fehlern
 
 # Verzeichnis erstellen, falls es nicht existiert
-if [ ! -d "/mnt/virtual_fs" ]; then
-  mkdir -p /mnt/virtual_fs
+if [ ! -d "/mnt/vfs" ]; then
+  mkdir -p /mnt/vfs
 fi
 
 echo "Warte auf MySQL-Datenbank..."
@@ -18,7 +18,7 @@ done
 echo "MySQL ist verf�gbar. Starte das FUSE-Dateisystem."
 
 # Starte das FUSE-Dateisystem
-if python /app/mysql-fuse-filesystem.py /mnt/virtual_fs; then
+if python3 /app/mysql-fuse-filesystem.py /mnt/vfs -o allow_other; then
   echo "FUSE-Dateisystem erfolgreich gestartet."
 else
   echo "Fehler beim Starten des FUSE-Dateisystems!" >&2

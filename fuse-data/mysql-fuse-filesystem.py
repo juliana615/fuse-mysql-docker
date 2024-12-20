@@ -318,12 +318,20 @@ class MySQLFuse(Operations):
 def main():
     if len(sys.argv) < 2:
         print("Usage: python3 mysql-fuse-filesystem.py <mountpoint>")
-        sys.exit(1)
+        sys.exit(1) # Non-zero indicates failure
     mountpoint = sys.argv[1]
     # mountpoint = '/mnt/vfs'
-    # Initialize FUSE
-    fuse = FUSE(MySQLFuse(), mountpoint, nothreads=True, foreground=True, allow_other=True)
     
+    try:
+        # Initialize FUSE
+        print("Starting FUSE...")
+        fuse = FUSE(MySQLFuse(), mountpoint, nothreads=True, foreground=True, allow_other=True)
+        print("FUSE started successfully.")
+        sys.exit(0)  # Exit with 0 to indicate success
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(2)  # Non-zero for failure
+        
 if __name__ == '__main__':
     main()
     

@@ -12,33 +12,36 @@ services:
     volumes:
       - mysql-data:/var/lib/mysql
       - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql  # Mount init.sql here
-    restart: always
+    # restart: always
 
-  # fuse-container:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   container_name: fuse-container
-  #   environment:
-  #     - MYSQL_HOST=mysql8
-  #     - MYSQL_PORT=3306
-  #     - MYSQL_USER=root
-  #     - MYSQL_PASSWORD=Test.123
-  #     - MYSQL_DATABASE=filesystem
-  #   networks:
-  #     - app-network
-  #   depends_on:
-  #     - mysql
-  #   volumes:
-  #     - ./fuse-data/:/app/
-  #     # - /mnt/virtual_fs/:/mnt/virtual_fs/
-  #   cap_add:
-  #     - SYS_ADMIN
-  #   devices:
-  #     - /dev/fuse
-  #   security_opt:
-  #     - apparmor:unconfined
-  #   privileged: true
+  fuse-container:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fuse-container
+    environment:
+      - MYSQL_HOST=mysql8
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=Test.123
+      - MYSQL_DATABASE=filesystem
+    networks:
+      - app-network
+    depends_on:
+      - mysql
+    volumes:
+      - ./fuse-data/:/app/
+      - /mnt/vfs/:/mnt/vfs/:shared
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse:/dev/fuse
+    security_opt:
+      - apparmor:unconfined
+    privileged: true
+    pid: "host"
+    stdin_open: true
+    tty: true
 
 networks:
   app-network:
@@ -47,5 +50,5 @@ networks:
 volumes:
   mysql-data:
     driver: local
-  # fuse-data:
-  #   driver: local
+  fuse-data:
+    driver: local
