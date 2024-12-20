@@ -322,7 +322,7 @@ def main():
     mountpoint = sys.argv[1]
     # mountpoint = '/mnt/vfs'
     # Initialize FUSE
-    fuse = FUSE(MySQLFuse(), mountpoint, foreground=True, allow_other=True)
+    fuse = FUSE(MySQLFuse(), mountpoint, nothreads=True, foreground=True, allow_other=True)
     
 if __name__ == '__main__':
     main()
