@@ -154,6 +154,8 @@ class MySQLFuse(Operations):
         return 0
     
     def unlink(self, path):
+        print(f"unlink called with path={path}")
+        
         self.cursor.execute("SELECT * FROM files WHERE path = %s", (path,))
         entry = self.cursor.fetchone()
         if not entry:
@@ -174,6 +176,29 @@ class MySQLFuse(Operations):
             self.conn.rollback()
             raise FuseOSError(errno.EIO)
     
+    def rmdir(self, path):
+        print(f"rmdir called with path={path}")
+        
+        self.cursor.execute("SELECT * FROM files WHERE path = %s", (path,))
+        entry = self.cursor.fetchone()
+        if not entry:
+            raise FuseOSError(errno.ENOENT)
+
+        parent_dir = os.path.dirname(path.rstrip('/'))
+        self.cursor.execute("SELECT * FROM files WHERE path = %s", (parent_dir,))
+        if not self.cursor.fetchone():
+            raise FuseOSError(errno.ENOENT)
+        
+        # Check if the directory is empty
+        self.cursor.execute("SELECT * FROM files WHERE path LIKE %s", (path.rstrip('/') + '/%',))
+        if self.cursor.fetchone():
+            raise FuseOSError(errno.ENOTEMPTY)
+
+        self.cursor.execute("DELETE FROM files WHERE path = %s", (path,))
+        parent_dir = os.path.dirname(path)
+        self.cursor.execute("UPDATE files SET nlink = nlink - 1 WHERE path = %s", (parent_dir,))
+        self.conn.commit()
+        
 def main():
     # if len(sys.argv) < 2:
     #     print("Usage: python3 mysql-fuse-filesystem.py <mountpoint>")
