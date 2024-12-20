@@ -70,36 +70,33 @@ class MySQLFuse(Operations):
 
     def mkdir(self, path, mode):
         print(f"mkdir called with path={path}, mode={oct(mode)}")
-        print(f"Current files: {self.files}")
         
-        if path in self.files:
+        self.cursor.execute("SELECT * FROM filesystem WHERE path = %s", (path,))
+        if self.cursor.fetchone():
             raise FuseOSError(errno.EEXIST)  # Directory already exists
         
         # Get the parent directory
         parent_dir = os.path.dirname(path)
-        if parent_dir not in self.files and parent_dir != '/':
-            raise FuseOSError(errno.ENOENT)  # Parent directory does not exist
+        self.cursor.execute("SELECT * FROM filesystem WHERE path = %s", (parent_dir,))
+        if not self.cursor.fetchone():
+            raise FuseOSError(errno.ENOENT)
         
         now = time()
-        # Add directory to the internal structure
-        self.files[path] = {
-            'st_mode': (S_IFDIR | mode),
-            'st_nlink': 2,
-            'st_size': 0,
-            'st_ctime': now,
-            'st_mtime': now,
-            'st_atime': now,
-        }
-        
-        # Update the parent directory's link count
-        if parent_dir in self.files:
-            self.files[parent_dir]['st_nlink'] += 1  # Increment link count for parent directory
-        elif parent_dir == '/':  # If root directory, no need to increment further
-            pass
-        else:
-            raise FuseOSError(errno.ENOENT)  # Parent directory doesn't exist
-        
-        print(f"New directory created: {path}, parent directory link count updated.")
+        try:
+            self.cursor.execute(
+                """
+                INSERT INTO filesystem (path, mode, nlink, size, ctime, mtime, atime)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (path, S_IFDIR | mode, 2, 0, now, now, now)
+            )
+            # Increment link count for the parent directory
+            self.cursor.execute("UPDATE filesystem SET nlink = nlink + 1 WHERE path = %s", (parent_dir,))
+            self.conn.commit()
+            
+            print(f"New directory created: {path}, parent directory link count updated.")
+        except mysql.connector.Error as e:
+            raise FuseOSError(errno.EEXIST)
         
     def readdir(self, path, fh):
         print(f"readdir called with path={path}")
